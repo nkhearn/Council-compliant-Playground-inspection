@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">PlaySafe Audit</string>
+    <string name="nav_inspect">Inspect</string>
+    <string name="nav_risk_export">Risk &amp; Export</string>
+    <string name="nav_history">History</string>
+    <string name="nav_settings">Settings</string>
+    <string name="form_reference">OIC-PA-CUSTOM-PXL-V2</string>
+    <string name="share_pdf_title">Share Inspection PDF</string>
+    <string name="share_json_title">Share Inspection JSON</string>
+</resources>

@@ -1,0 +1,6 @@
+{
+  "name": "PlaySafe Audit",
+  "description": "Offline-first routine playground safety inspection checklist, dynamic risk assessment compiler, and PDF/JSON report exporter.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
