@@ -184,8 +184,11 @@ class PdfReportGenerator(private val context: Context) {
             state.cursorY + 13f,
             orgPaint,
         )
+        val displayTitle = report.metadata.checklistTitle
+            .takeIf { it.isNotBlank() && it != "Customised Play Area Safety Inspection Checklist — Rev 2" }
+            ?: "Play Area - Routine Safety Inspection"
         canvas?.drawText(
-            report.metadata.checklistTitle,
+            displayTitle,
             MARGIN_H + 10f,
             state.cursorY + 28f,
             titlePaint,

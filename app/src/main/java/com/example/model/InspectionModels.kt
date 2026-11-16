@@ -141,7 +141,7 @@ data class MaintenanceLogEntry(
 data class InspectionMetadata(
     val formRef: String = "OIC-PA-CUSTOM-PXL-V2",
     val organizationName: String = "Orkney Islands Council — Education, Communities & Housing",
-    val checklistTitle: String = "Customised Play Area Safety Inspection Checklist — Rev 2",
+    val checklistTitle: String = "Play Area - Routine Safety Inspection",
     val inspectorName: String = "",
     val siteName: String = "",
     val inspectionDate: String = currentFormattedDate(),
