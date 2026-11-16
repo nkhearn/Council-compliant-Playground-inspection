@@ -47,6 +47,7 @@ import com.example.model.ActionRequired
 import com.example.model.InspectionReport
 import com.example.model.InspectionStatus
 import com.example.model.RiskLevel
+import com.example.model.riskLevelFromScore
 import com.example.ui.theme.FailCrimson
 import com.example.ui.theme.FailCrimsonSurface
 import com.example.ui.theme.NaSlate
@@ -59,6 +60,16 @@ import com.example.ui.theme.RiskLowColor
 import com.example.ui.theme.RiskLowSurface
 import com.example.ui.theme.RiskMediumColor
 import com.example.ui.theme.RiskMediumSurface
+import com.example.ui.theme.Scale1Color
+import com.example.ui.theme.Scale1Surface
+import com.example.ui.theme.Scale2Color
+import com.example.ui.theme.Scale2Surface
+import com.example.ui.theme.Scale3Color
+import com.example.ui.theme.Scale3Surface
+import com.example.ui.theme.Scale4Color
+import com.example.ui.theme.Scale4Surface
+import com.example.ui.theme.Scale5Color
+import com.example.ui.theme.Scale5Surface
 
 @Composable
 fun InspectionProgressBanner(
@@ -263,55 +274,147 @@ private fun StatusToggleButton(
     }
 }
 
+fun scaleColorsForValue(value: Int): Pair<Color, Color> = when (value) {
+    1 -> Scale1Color to Scale1Surface
+    2 -> Scale2Color to Scale2Surface
+    3 -> Scale3Color to Scale3Surface
+    4 -> Scale4Color to Scale4Surface
+    else -> Scale5Color to Scale5Surface
+}
+
+/**
+ * 1-to-5 color-coded selector (1 = Green moving up to 5 = Red) for Probability and Severity.
+ */
 @Composable
-fun RiskLevelSelector(
-    itemId: String,
-    selectedRisk: RiskLevel?,
-    onSelectRisk: (RiskLevel) -> Unit,
+fun FivePointScaleSelector(
+    tagPrefix: String,
+    selectedValue: Int?,
+    lowHint: String,
+    highHint: String,
+    onSelectValue: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Column(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        listOf(RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH).forEach { level ->
-            val isSelected = selectedRisk == level
-            val (activeBg, activeFg) = when (level) {
-                RiskLevel.LOW -> RiskLowColor to Color.White
-                RiskLevel.MEDIUM -> RiskMediumColor to Color.White
-                RiskLevel.HIGH -> RiskHighColor to Color.White
-            }
-            val subtleBorder = when (level) {
-                RiskLevel.LOW -> RiskLowColor.copy(alpha = 0.5f)
-                RiskLevel.MEDIUM -> RiskMediumColor.copy(alpha = 0.5f)
-                RiskLevel.HIGH -> RiskHighColor.copy(alpha = 0.5f)
-            }
-            Surface(
-                onClick = { onSelectRisk(level) },
-                modifier = Modifier
-                    .weight(1f)
-                    .minimumInteractiveComponentSize()
-                    .testTag("risk_${level.name.lowercase()}_$itemId"),
-                shape = RoundedCornerShape(10.dp),
-                color = if (isSelected) activeBg else MaterialTheme.colorScheme.surface,
-                border = BorderStroke(
-                    width = if (isSelected) 1.5.dp else 1.dp,
-                    color = if (isSelected) activeBg else subtleBorder,
-                ),
-            ) {
-                Row(
-                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            (1..5).forEach { value ->
+                val isSelected = selectedValue == value
+                val (vividColor, tintSurface) = scaleColorsForValue(value)
+                val bgColor by animateColorAsState(
+                    targetValue = if (isSelected) vividColor else tintSurface.copy(alpha = 0.65f),
+                    label = "scale_bg_$value",
+                )
+                val fgColor by animateColorAsState(
+                    targetValue = if (isSelected) Color.White else vividColor,
+                    label = "scale_fg_$value",
+                )
+
+                Surface(
+                    onClick = { onSelectValue(value) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .minimumInteractiveComponentSize()
+                        .testTag("${tagPrefix}_$value"),
+                    shape = RoundedCornerShape(10.dp),
+                    color = bgColor,
+                    border = BorderStroke(
+                        width = if (isSelected) 2.dp else 1.dp,
+                        color = vividColor.copy(alpha = if (isSelected) 1f else 0.55f),
+                    ),
                 ) {
-                    Text(
-                        text = level.label,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (isSelected) activeFg else MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                    )
+                    Row(
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = value.toString(),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = fgColor,
+                        )
+                    }
                 }
             }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = lowHint,
+                style = MaterialTheme.typography.labelSmall,
+                color = Scale1Color,
+            )
+            Text(
+                text = highHint,
+                style = MaterialTheme.typography.labelSmall,
+                color = Scale5Color,
+            )
+        }
+    }
+}
+
+@Composable
+fun RiskScoreBanner(
+    probability: Int?,
+    severity: Int?,
+    modifier: Modifier = Modifier,
+) {
+    if (probability == null || severity == null) {
+        Surface(
+            modifier = modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+        ) {
+            Text(
+                text = "Select Probability (1–5) × Severity (1–5) to calculate Risk Score (1–25)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
+        return
+    }
+
+    val score = probability * severity
+    val level = riskLevelFromScore(score)
+    val (fg, bg) = when (level) {
+        RiskLevel.HIGH -> RiskHighColor to RiskHighSurface
+        RiskLevel.MEDIUM -> RiskMediumColor to RiskMediumSurface
+        RiskLevel.LOW -> RiskLowColor to RiskLowSurface
+    }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = bg,
+        border = BorderStroke(1.2.dp, fg),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Risk Score: $probability × $severity = $score / 25",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = fg,
+            )
+            StatBadge(
+                label = "${level.label.uppercase()} RISK",
+                bgColor = fg,
+                fgColor = Color.White,
+            )
         }
     }
 }
@@ -337,7 +440,7 @@ fun ActionRequiredSelector(
                 ActionRequired.TAKE_OUT_OF_USE -> Icons.Filled.DoNotDisturbOn
             }
             val activeBg = when (action) {
-                ActionRequired.MONITOR -> RiskLowColor
+                ActionRequired.MONITOR -> Color(0xFF0284C7)
                 ActionRequired.REPAIR -> RiskMediumColor
                 ActionRequired.TAKE_OUT_OF_USE -> FailCrimson
             }
@@ -378,12 +481,25 @@ fun ActionRequiredSelector(
 @Composable
 fun RiskBadge(
     riskLevel: RiskLevel?,
+    riskScore: Int? = null,
     modifier: Modifier = Modifier,
 ) {
     val (label, bg, fg) = when (riskLevel) {
-        RiskLevel.HIGH -> Triple("HIGH RISK", RiskHighSurface, RiskHighColor)
-        RiskLevel.MEDIUM -> Triple("MEDIUM RISK", RiskMediumSurface, RiskMediumColor)
-        RiskLevel.LOW -> Triple("LOW RISK", RiskLowSurface, RiskLowColor)
+        RiskLevel.HIGH -> Triple(
+            riskScore?.let { "HIGH ($it/25)" } ?: "HIGH RISK",
+            RiskHighSurface,
+            RiskHighColor,
+        )
+        RiskLevel.MEDIUM -> Triple(
+            riskScore?.let { "MED ($it/25)" } ?: "MEDIUM RISK",
+            RiskMediumSurface,
+            RiskMediumColor,
+        )
+        RiskLevel.LOW -> Triple(
+            riskScore?.let { "LOW ($it/25)" } ?: "LOW RISK",
+            RiskLowSurface,
+            RiskLowColor,
+        )
         null -> Triple("ALL CLEAR", PassEmeraldSurface, PassEmerald)
     }
     Surface(

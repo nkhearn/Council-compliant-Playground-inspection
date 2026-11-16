@@ -23,6 +23,7 @@ import com.example.model.OverallActionRequired
 import com.example.model.RiskLevel
 import com.example.model.currentFormattedDate
 import com.example.model.currentFormattedTime
+import com.example.model.riskLevelFromScore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -236,6 +237,22 @@ class InspectionViewModel(application: Application) : AndroidViewModel(applicati
 
     fun updateItemDefectDetails(itemId: String, details: String) {
         updateItem(itemId) { it.copy(defectDetails = details) }
+    }
+
+    fun updateItemProbability(itemId: String, probability: Int) {
+        val clamped = probability.coerceIn(1, 5)
+        updateItem(itemId) { item ->
+            val updatedRisk = item.severity?.let { sev -> riskLevelFromScore(clamped * sev) } ?: item.riskLevel
+            item.copy(probability = clamped, riskLevel = updatedRisk)
+        }
+    }
+
+    fun updateItemSeverity(itemId: String, severity: Int) {
+        val clamped = severity.coerceIn(1, 5)
+        updateItem(itemId) { item ->
+            val updatedRisk = item.probability?.let { prob -> riskLevelFromScore(prob * clamped) } ?: item.riskLevel
+            item.copy(severity = clamped, riskLevel = updatedRisk)
+        }
     }
 
     fun updateItemRiskLevel(itemId: String, riskLevel: RiskLevel) {

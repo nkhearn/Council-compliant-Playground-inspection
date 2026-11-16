@@ -19,6 +19,30 @@ enum class RiskLevel(val label: String, val sortOrder: Int) {
     LOW("Low", 2),
 }
 
+fun riskLevelFromScore(score: Int): RiskLevel = when {
+    score >= 15 -> RiskLevel.HIGH
+    score >= 7 -> RiskLevel.MEDIUM
+    else -> RiskLevel.LOW
+}
+
+fun probabilityLabel(value: Int): String = when (value) {
+    1 -> "1 · Low"
+    2 -> "2 · Unlikely"
+    3 -> "3 · Possible"
+    4 -> "4 · Likely"
+    5 -> "5 · High"
+    else -> value.toString()
+}
+
+fun severityLabel(value: Int): String = when (value) {
+    1 -> "1 · Least"
+    2 -> "2 · Minor"
+    3 -> "3 · Moderate"
+    4 -> "4 · Major"
+    5 -> "5 · Severe"
+    else -> value.toString()
+}
+
 enum class ActionRequired(val label: String) {
     MONITOR("Monitor"),
     REPAIR("Repair"),
@@ -60,12 +84,32 @@ data class InspectionItem(
     val status: InspectionStatus = InspectionStatus.UNANSWERED,
     val inlineNote: String = "",
     val defectDetails: String = "",
+    val probability: Int? = null,
+    val severity: Int? = null,
     val riskLevel: RiskLevel? = null,
     val actionRequired: ActionRequired? = null,
 ) {
+    val computedRiskScore: Int?
+        get() = if (probability != null && severity != null) {
+            probability.coerceIn(1, 5) * severity.coerceIn(1, 5)
+        } else {
+            when (riskLevel) {
+                RiskLevel.HIGH -> 20
+                RiskLevel.MEDIUM -> 9
+                RiskLevel.LOW -> 4
+                null -> null
+            }
+        }
+
+    val effectiveRiskLevel: RiskLevel?
+        get() = computedRiskScore?.let(::riskLevelFromScore) ?: riskLevel
+
     val isFailureComplete: Boolean
         get() = status != InspectionStatus.FAIL || (
-            defectDetails.isNotBlank() && riskLevel != null && actionRequired != null
+            defectDetails.isNotBlank() &&
+                probability != null &&
+                severity != null &&
+                actionRequired != null
         )
 }
 
@@ -77,6 +121,9 @@ data class RiskAssessmentEntry(
     val referenceCode: String,
     val question: String,
     val defectDetails: String,
+    val probability: Int,
+    val severity: Int,
+    val riskScore: Int,
     val riskLevel: RiskLevel,
     val actionRequired: ActionRequired,
 )
@@ -120,6 +167,17 @@ data class InspectionReport(
     val riskAssessmentEntries: List<RiskAssessmentEntry>
         get() = failedItems
             .map { item ->
+                val p = (item.probability ?: when (item.riskLevel) {
+                    RiskLevel.HIGH -> 4
+                    RiskLevel.LOW -> 2
+                    else -> 3
+                }).coerceIn(1, 5)
+                val s = (item.severity ?: when (item.riskLevel) {
+                    RiskLevel.HIGH -> 5
+                    RiskLevel.LOW -> 2
+                    else -> 3
+                }).coerceIn(1, 5)
+                val score = p * s
                 RiskAssessmentEntry(
                     itemId = item.id,
                     sectionNumber = item.sectionNumber,
@@ -127,11 +185,14 @@ data class InspectionReport(
                     referenceCode = item.referenceCode,
                     question = item.question,
                     defectDetails = item.defectDetails.ifBlank { "Defect details pending entry" },
-                    riskLevel = item.riskLevel ?: RiskLevel.MEDIUM,
+                    probability = p,
+                    severity = s,
+                    riskScore = score,
+                    riskLevel = riskLevelFromScore(score),
                     actionRequired = item.actionRequired ?: ActionRequired.MONITOR,
                 )
             }
-            .sortedBy { it.riskLevel.sortOrder }
+            .sortedByDescending { it.riskScore }
 
     val passCount: Int
         get() = items.count { it.status == InspectionStatus.PASS }
@@ -151,11 +212,11 @@ data class InspectionReport(
     val incompleteFailureCount: Int
         get() = failedItems.count { !it.isFailureComplete }
 
+    val highestRiskScore: Int?
+        get() = riskAssessmentEntries.maxOfOrNull { it.riskScore }
+
     val highestRiskLevel: RiskLevel?
-        get() = failedItems
-            .mapNotNull { it.riskLevel }
-            .minByOrNull { it.sortOrder }
-            ?: if (failCount > 0) RiskLevel.MEDIUM else null
+        get() = highestRiskScore?.let(::riskLevelFromScore)
 
     val highRiskCount: Int
         get() = riskAssessmentEntries.count { it.riskLevel == RiskLevel.HIGH }
@@ -175,6 +236,7 @@ data class JsonReportSummary(
     val failCount: Int,
     val naCount: Int,
     val unansweredCount: Int,
+    val highestRiskScore: Int?,
     val highestRiskLevel: String,
     val highRiskCount: Int,
     val mediumRiskCount: Int,
@@ -183,7 +245,7 @@ data class JsonReportSummary(
 
 @JsonClass(generateAdapter = true)
 data class InspectionJsonExport(
-    val schemaVersion: String = "1.0",
+    val schemaVersion: String = "1.1",
     val exportedAtIso: String,
     val reportId: String,
     val metadata: InspectionMetadata,

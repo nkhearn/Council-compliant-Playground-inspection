@@ -81,8 +81,9 @@ import com.example.model.MaintenanceLogEntry
 import com.example.model.OverallActionRequired
 import com.example.model.RiskLevel
 import com.example.ui.components.ActionRequiredSelector
+import com.example.ui.components.FivePointScaleSelector
 import com.example.ui.components.InspectionProgressBanner
-import com.example.ui.components.RiskLevelSelector
+import com.example.ui.components.RiskScoreBanner
 import com.example.ui.components.StatBadge
 import com.example.ui.components.StatusTriToggleRow
 import com.example.ui.theme.FailCrimson
@@ -107,7 +108,8 @@ fun InspectScreen(
     onItemStatusChange: (String, InspectionStatus) -> Unit,
     onItemNoteChange: (String, String) -> Unit,
     onItemDefectDetailsChange: (String, String) -> Unit,
-    onItemRiskLevelChange: (String, RiskLevel) -> Unit,
+    onItemProbabilityChange: (String, Int) -> Unit,
+    onItemSeverityChange: (String, Int) -> Unit,
     onItemActionRequiredChange: (String, ActionRequired) -> Unit,
     onMarkCategoryAllPass: (String) -> Unit,
     onToggleCategoryNa: (String) -> Unit,
@@ -224,7 +226,8 @@ fun InspectScreen(
                                     onSelectStatus = { status -> onItemStatusChange(item.id, status) },
                                     onNoteChange = { note -> onItemNoteChange(item.id, note) },
                                     onDefectDetailsChange = { details -> onItemDefectDetailsChange(item.id, details) },
-                                    onRiskLevelChange = { risk -> onItemRiskLevelChange(item.id, risk) },
+                                    onProbabilityChange = { prob -> onItemProbabilityChange(item.id, prob) },
+                                    onSeverityChange = { sev -> onItemSeverityChange(item.id, sev) },
                                     onActionRequiredChange = { action -> onItemActionRequiredChange(item.id, action) },
                                 )
                             }
@@ -667,7 +670,8 @@ private fun InspectionItemCard(
     onSelectStatus: (InspectionStatus) -> Unit,
     onNoteChange: (String) -> Unit,
     onDefectDetailsChange: (String) -> Unit,
-    onRiskLevelChange: (RiskLevel) -> Unit,
+    onProbabilityChange: (Int) -> Unit,
+    onSeverityChange: (Int) -> Unit,
     onActionRequiredChange: (ActionRequired) -> Unit,
 ) {
     var showOptionalNote by remember(item.id) { mutableStateOf(item.inlineNote.isNotBlank()) }
@@ -787,16 +791,38 @@ private fun InspectionItemCard(
 
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
-                                text = "Risk Level *",
+                                text = "Probability (1–5) *",
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
-                            RiskLevelSelector(
-                                itemId = item.id,
-                                selectedRisk = item.riskLevel,
-                                onSelectRisk = onRiskLevelChange,
+                            FivePointScaleSelector(
+                                tagPrefix = "probability_${item.id}",
+                                selectedValue = item.probability,
+                                lowHint = "1 · Low",
+                                highHint = "5 · High",
+                                onSelectValue = onProbabilityChange,
                             )
                         }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "Severity (1–5) *",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            FivePointScaleSelector(
+                                tagPrefix = "severity_${item.id}",
+                                selectedValue = item.severity,
+                                lowHint = "1 · Least Severe",
+                                highHint = "5 · Most Severe",
+                                onSelectValue = onSeverityChange,
+                            )
+                        }
+
+                        RiskScoreBanner(
+                            probability = item.probability,
+                            severity = item.severity,
+                        )
 
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(

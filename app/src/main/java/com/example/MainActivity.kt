@@ -11,10 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.AssignmentTurnedIn
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Assessment
@@ -208,7 +208,7 @@ fun PlaySafeApp(
                                 modifier = Modifier.testTag("topbar_new_inspection_button"),
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.NoteAdd,
+                                    imageVector = Icons.AutoMirrored.Filled.NoteAdd,
                                     contentDescription = "Start new inspection",
                                 )
                             }
@@ -285,7 +285,8 @@ fun PlaySafeApp(
                             onItemStatusChange = viewModel::setItemStatus,
                             onItemNoteChange = viewModel::updateItemNote,
                             onItemDefectDetailsChange = viewModel::updateItemDefectDetails,
-                            onItemRiskLevelChange = viewModel::updateItemRiskLevel,
+                            onItemProbabilityChange = viewModel::updateItemProbability,
+                            onItemSeverityChange = viewModel::updateItemSeverity,
                             onItemActionRequiredChange = viewModel::updateItemActionRequired,
                             onMarkCategoryAllPass = viewModel::markCategoryAllPass,
                             onToggleCategoryNa = viewModel::toggleCategoryNa,
@@ -316,7 +317,8 @@ fun PlaySafeApp(
                                 navigateSingleTop(navController, AppRoutes.ROUTE_INSPECT)
                             },
                             onUpdateDefectDetails = viewModel::updateItemDefectDetails,
-                            onUpdateRiskLevel = viewModel::updateItemRiskLevel,
+                            onUpdateProbability = viewModel::updateItemProbability,
+                            onUpdateSeverity = viewModel::updateItemSeverity,
                             onUpdateActionRequired = viewModel::updateItemActionRequired,
                         )
                     }

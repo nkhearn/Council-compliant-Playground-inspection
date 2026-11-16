@@ -40,6 +40,7 @@ class JsonReportExporter(private val context: Context) {
                 failCount = report.failCount,
                 naCount = report.naCount,
                 unansweredCount = report.unansweredCount,
+                highestRiskScore = report.highestRiskScore,
                 highestRiskLevel = report.highestRiskLevel?.label ?: "None",
                 highRiskCount = report.highRiskCount,
                 mediumRiskCount = report.mediumRiskCount,

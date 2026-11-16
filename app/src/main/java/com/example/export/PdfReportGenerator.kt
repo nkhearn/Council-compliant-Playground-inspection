@@ -13,6 +13,7 @@ import android.text.TextPaint
 import com.example.model.InspectionItem
 import com.example.model.InspectionReport
 import com.example.model.InspectionStatus
+import com.example.model.RiskAssessmentEntry
 import com.example.model.RiskLevel
 import java.io.File
 import java.io.FileOutputStream
@@ -25,14 +26,29 @@ class PdfReportGenerator(private val context: Context) {
     companion object {
         private const val PAGE_WIDTH = 595 // A4 width in PostScript points (72 dpi)
         private const val PAGE_HEIGHT = 842 // A4 height in PostScript points (72 dpi)
-        private const val MARGIN_H = 34f
-        private const val MARGIN_TOP = 36f
-        private const val MARGIN_BOTTOM = 44f
-        private const val CONTENT_WIDTH = PAGE_WIDTH - (MARGIN_H * 2)
+        private const val MARGIN_H = 24f
+        private const val MARGIN_TOP = 24f
+        private const val MARGIN_BOTTOM = 26f
+        private const val CONTENT_WIDTH = PAGE_WIDTH - (MARGIN_H * 2) // 547f
+
+        // Checklist column offsets relative to MARGIN_H
+        private const val COL_Q_WIDTH = 342f
+        private const val COL_STATUS_X_OFFSET = 344f
+        private const val COL_STATUS_WIDTH = 48f
+        private const val COL_NOTES_X_OFFSET = 396f
+        private const val COL_NOTES_WIDTH = CONTENT_WIDTH - COL_NOTES_X_OFFSET - 4f // ~147f
+
+        // Risk table column offsets relative to MARGIN_H
+        private const val RISK_COL_EQUIP_WIDTH = 114f
+        private const val RISK_COL_DEFECT_X_OFFSET = 120f
+        private const val RISK_COL_DEFECT_WIDTH = 266f
+        private const val RISK_COL_LEVEL_X_OFFSET = 392f
+        private const val RISK_COL_ACTION_X_OFFSET = 450f
+        private const val RISK_COL_ACTION_WIDTH = CONTENT_WIDTH - RISK_COL_ACTION_X_OFFSET - 4f
 
         private val COLOR_NAVY = Color.rgb(17, 43, 76)
         private val COLOR_NAVY_SUBTLE = Color.rgb(230, 236, 244)
-        private val COLOR_SLATE = Color.rgb(71, 85, 105)
+        private val COLOR_CRIMSON_HEADER = Color.rgb(153, 27, 27)
         private val COLOR_TEXT_PRIMARY = Color.rgb(15, 23, 42)
         private val COLOR_TEXT_MUTED = Color.rgb(100, 116, 139)
         private val COLOR_BORDER = Color.rgb(203, 213, 225)
@@ -51,8 +67,8 @@ class PdfReportGenerator(private val context: Context) {
         private val COLOR_RISK_HIGH_FG = Color.rgb(185, 28, 28)
         private val COLOR_RISK_MED_BG = Color.rgb(254, 243, 199)
         private val COLOR_RISK_MED_FG = Color.rgb(180, 83, 9)
-        private val COLOR_RISK_LOW_BG = Color.rgb(224, 242, 254)
-        private val COLOR_RISK_LOW_FG = Color.rgb(3, 105, 161)
+        private val COLOR_RISK_LOW_BG = Color.rgb(220, 252, 231)
+        private val COLOR_RISK_LOW_FG = Color.rgb(21, 128, 61)
     }
 
     internal fun calculatePageCount(report: InspectionReport): Int {
@@ -68,10 +84,10 @@ class PdfReportGenerator(private val context: Context) {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val outputFile = File(exportDir, "PlaySafe_${sanitizedSite}_$timestamp.pdf")
 
-        // Pass 1: calculate exact page count
+        // Pass 1: compute exact page count for "Page X of Y"
         val totalPages = calculatePageCount(report)
 
-        // Pass 2: render real PDF pages
+        // Pass 2: render final A4 PDF
         val pdfDocument = PdfDocument()
         try {
             renderReport(report = report, document = pdfDocument, totalPages = totalPages)
@@ -92,34 +108,31 @@ class PdfReportGenerator(private val context: Context) {
         val state = RenderState(document = document, totalPages = totalPages, report = report)
         state.startFirstPage()
 
-        // 1. Top Banner & Inspection Metadata
+        // 1. Compact Header & Inspection Metadata
         drawDocumentHeader(state, report)
         drawMetadataBox(state, report)
 
         // 2. Full Checklist Section by Section
-        drawSectionTitleBanner(state, "FULL ROUTINE INSPECTION CHECKLIST", COLOR_NAVY)
-
         val groupedItems = report.items.groupBy { it.sectionNumber to it.categoryTitle }
         groupedItems.forEach { (sectionKey, sectionItems) ->
             val (secNum, secTitle) = sectionKey
-            // Ensure space for category bar + table header + at least one row
-            state.ensureSpace(78f)
-            drawCategoryHeader(state, "$secNum. ${secTitle.uppercase(Locale.getDefault())}")
-            drawChecklistTableHeader(state)
+            // Reserve room for category header bar + at least one row
+            state.ensureSpace(34f)
+            drawCategoryHeaderWithColumns(state, "$secNum. ${secTitle.uppercase(Locale.getDefault())}")
 
             sectionItems.forEachIndexed { index, item ->
                 drawChecklistRow(state, item, isAlternate = index % 2 == 1)
             }
-            state.cursorY += 10f
+            state.cursorY += 4f
         }
 
         // 3. Automated Risk Assessment & Action Plan Table
-        state.ensureSpace(95f)
-        state.cursorY += 4f
+        state.ensureSpace(58f)
+        state.cursorY += 3f
         drawSectionTitleBanner(
             state,
-            "COMPILED RISK ASSESSMENT & ACTION PLAN (FAILED CHECKS)",
-            if (report.failCount > 0) Color.rgb(153, 27, 27) else COLOR_PASS_FG,
+            "COMPILED RISK ASSESSMENT & ACTION PLAN",
+            if (report.failCount > 0) COLOR_CRIMSON_HEADER else COLOR_PASS_FG,
         )
 
         val riskEntries = report.riskAssessmentEntries
@@ -133,8 +146,8 @@ class PdfReportGenerator(private val context: Context) {
         }
 
         // 4. Maintenance Log & Inspector Sign-Off
-        state.ensureSpace(120f)
-        state.cursorY += 12f
+        state.ensureSpace(72f)
+        state.cursorY += 6f
         drawSectionTitleBanner(state, "MAINTENANCE LOG & INSPECTOR SIGN-OFF", COLOR_NAVY)
         drawMaintenanceAndSignOff(state, report)
 
@@ -144,49 +157,55 @@ class PdfReportGenerator(private val context: Context) {
 
     private fun drawDocumentHeader(state: RenderState, report: InspectionReport) {
         val canvas = state.canvas
-        val bgRect = RectF(MARGIN_H, state.cursorY, PAGE_WIDTH - MARGIN_H, state.cursorY + 54f)
+        val headerHeight = 36f
+        val bgRect = RectF(MARGIN_H, state.cursorY, PAGE_WIDTH - MARGIN_H, state.cursorY + headerHeight)
         val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_NAVY }
-        canvas?.drawRoundRect(bgRect, 4f, 4f, fillPaint)
+        canvas?.drawRoundRect(bgRect, 3f, 3f, fillPaint)
 
         val orgPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(253, 230, 138)
-            textSize = 8.5f
+            textSize = 7.4f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            textSize = 13.5f
+            textSize = 11.5f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        val subPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        val refPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(203, 213, 225)
-            textSize = 8.5f
+            textSize = 7.2f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
         }
 
         canvas?.drawText(
             report.metadata.organizationName.uppercase(Locale.getDefault()),
-            MARGIN_H + 12f,
-            state.cursorY + 16f,
+            MARGIN_H + 10f,
+            state.cursorY + 13f,
             orgPaint,
         )
         canvas?.drawText(
             report.metadata.checklistTitle,
-            MARGIN_H + 12f,
-            state.cursorY + 33f,
+            MARGIN_H + 10f,
+            state.cursorY + 28f,
             titlePaint,
         )
+
+        val refText = "REF: ${report.metadata.formRef}"
+        val refWidth = refPaint.measureText(refText)
         canvas?.drawText(
-            "Form Ref: ${report.metadata.formRef}   |   Offline Field Audit Report",
-            MARGIN_H + 12f,
-            state.cursorY + 46f,
-            subPaint,
+            refText,
+            PAGE_WIDTH - MARGIN_H - refWidth - 10f,
+            state.cursorY + 13f,
+            refPaint,
         )
-        state.cursorY += 62f
+
+        state.cursorY += headerHeight + 5f
     }
 
     private fun drawMetadataBox(state: RenderState, report: InspectionReport) {
         val boxTop = state.cursorY
-        val boxHeight = 82f
+        val boxHeight = 56f
         val canvas = state.canvas
 
         val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -196,75 +215,81 @@ class PdfReportGenerator(private val context: Context) {
         val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = COLOR_BORDER
             style = Paint.Style.STROKE
-            strokeWidth = 1f
+            strokeWidth = 0.8f
         }
         val rect = RectF(MARGIN_H, boxTop, PAGE_WIDTH - MARGIN_H, boxTop + boxHeight)
-        canvas?.drawRoundRect(rect, 4f, 4f, boxPaint)
-        canvas?.drawRoundRect(rect, 4f, 4f, strokePaint)
+        canvas?.drawRoundRect(rect, 3f, 3f, boxPaint)
+        canvas?.drawRoundRect(rect, 3f, 3f, strokePaint)
 
         val labelPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = COLOR_NAVY
-            textSize = 8.5f
+            textSize = 7.6f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         val valPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = COLOR_TEXT_PRIMARY
-            textSize = 9.5f
+            textSize = 8.2f
         }
 
-        val col1X = MARGIN_H + 10f
+        val col1X = MARGIN_H + 8f
         val col2X = MARGIN_H + (CONTENT_WIDTH * 0.54f)
 
-        canvas?.drawText("Play Area / Site:", col1X, boxTop + 17f, labelPaint)
+        canvas?.drawText("Play Area / Site:", col1X, boxTop + 13f, labelPaint)
         canvas?.drawText(
-            report.metadata.siteName.ifBlank { "Not Specified" }.take(38),
-            col1X + 86f,
-            boxTop + 17f,
+            report.metadata.siteName.ifBlank { "Not Specified" }.take(40),
+            col1X + 74f,
+            boxTop + 13f,
             valPaint,
         )
 
-        canvas?.drawText("Inspector Name:", col1X, boxTop + 34f, labelPaint)
+        canvas?.drawText("Inspector:", col1X, boxTop + 26f, labelPaint)
         canvas?.drawText(
-            report.metadata.inspectorName.ifBlank { "Not Specified" }.take(38),
-            col1X + 86f,
-            boxTop + 34f,
+            report.metadata.inspectorName.ifBlank { "Not Specified" }.take(40),
+            col1X + 74f,
+            boxTop + 26f,
             valPaint,
         )
 
-        canvas?.drawText("Date & Time:", col2X, boxTop + 17f, labelPaint)
+        canvas?.drawText("Date & Time:", col2X, boxTop + 13f, labelPaint)
         canvas?.drawText(
             "${report.metadata.inspectionDate}  ${report.metadata.inspectionTime}",
-            col2X + 68f,
-            boxTop + 17f,
+            col2X + 58f,
+            boxTop + 13f,
             valPaint,
         )
 
-        canvas?.drawText("Weather:", col2X, boxTop + 34f, labelPaint)
+        canvas?.drawText("Weather:", col2X, boxTop + 26f, labelPaint)
         canvas?.drawText(
-            report.metadata.weatherConditions.ifBlank { "Not Specified" }.take(26),
-            col2X + 68f,
-            boxTop + 34f,
+            report.metadata.weatherConditions.ifBlank { "Not Specified" }.take(28),
+            col2X + 58f,
+            boxTop + 26f,
             valPaint,
         )
 
-        // Divider line inside metadata box
         canvas?.drawLine(
-            MARGIN_H + 8f,
-            boxTop + 45f,
-            PAGE_WIDTH - MARGIN_H - 8f,
-            boxTop + 45f,
+            MARGIN_H + 6f,
+            boxTop + 33f,
+            PAGE_WIDTH - MARGIN_H - 6f,
+            boxTop + 33f,
             strokePaint,
         )
 
-        // Summary pills
-        val pillY = boxTop + 53f
-        var pillX = MARGIN_H + 10f
-        pillX += drawPill(canvas, pillX, pillY, "TOTAL: ${report.items.size}", COLOR_NAVY_SUBTLE, COLOR_NAVY) + 8f
-        pillX += drawPill(canvas, pillX, pillY, "PASS (YES): ${report.passCount}", COLOR_PASS_BG, COLOR_PASS_FG) + 8f
-        pillX += drawPill(canvas, pillX, pillY, "FAIL (NO): ${report.failCount}", COLOR_FAIL_BG, COLOR_FAIL_FG) + 8f
-        pillX += drawPill(canvas, pillX, pillY, "N/A: ${report.naCount}", COLOR_NA_BG, COLOR_NA_FG) + 8f
+        // Compact summary pills row
+        val pillY = boxTop + 37.5f
+        var pillX = MARGIN_H + 8f
+        pillX += drawPill(canvas, pillX, pillY, "CHECKS: ${report.items.size}", COLOR_NAVY_SUBTLE, COLOR_NAVY) + 6f
+        pillX += drawPill(canvas, pillX, pillY, "YES: ${report.passCount}", COLOR_PASS_BG, COLOR_PASS_FG) + 6f
+        pillX += drawPill(canvas, pillX, pillY, "NO: ${report.failCount}", COLOR_FAIL_BG, COLOR_FAIL_FG) + 6f
+        pillX += drawPill(canvas, pillX, pillY, "N/A: ${report.naCount}", COLOR_NA_BG, COLOR_NA_FG) + 6f
 
-        val riskLabel = report.highestRiskLevel?.let { "RISK: ${it.label.uppercase(Locale.US)}" } ?: "RISK: NONE"
+        val riskLabel = report.highestRiskLevel?.let { level ->
+            val peakScore = report.highestRiskScore
+            if (peakScore != null) {
+                "PEAK RISK: $peakScore/25 (${level.label.uppercase(Locale.US)})"
+            } else {
+                "RISK: ${level.label.uppercase(Locale.US)}"
+            }
+        } ?: "RISK: NONE"
         val (riskBg, riskFg) = when (report.highestRiskLevel) {
             RiskLevel.HIGH -> COLOR_RISK_HIGH_BG to COLOR_RISK_HIGH_FG
             RiskLevel.MEDIUM -> COLOR_RISK_MED_BG to COLOR_RISK_MED_FG
@@ -273,7 +298,7 @@ class PdfReportGenerator(private val context: Context) {
         }
         drawPill(canvas, pillX, pillY, riskLabel, riskBg, riskFg)
 
-        state.cursorY += boxHeight + 12f
+        state.cursorY += boxHeight + 6f
     }
 
     private fun drawPill(
@@ -283,71 +308,59 @@ class PdfReportGenerator(private val context: Context) {
         text: String,
         bgColor: Int,
         fgColor: Int,
+        height: Float = 13.5f,
+        textSize: Float = 6.9f,
     ): Float {
         val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = fgColor
-            textSize = 8f
+            this.textSize = textSize
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         val textWidth = textPaint.measureText(text)
-        val width = textWidth + 14f
-        val height = 18f
+        val width = textWidth + 10f
         val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = bgColor }
-        canvas?.drawRoundRect(RectF(x, y, x + width, y + height), 9f, 9f, bgPaint)
-        canvas?.drawText(text, x + 7f, y + 12.2f, textPaint)
+        canvas?.drawRoundRect(RectF(x, y, x + width, y + height), height / 2f, height / 2f, bgPaint)
+        val textOffsetY = (height / 2f) - ((textPaint.descent() + textPaint.ascent()) / 2f)
+        canvas?.drawText(text, x + 5f, y + textOffsetY, textPaint)
         return width
     }
 
     private fun drawSectionTitleBanner(state: RenderState, title: String, bgColor: Int) {
-        state.ensureSpace(32f)
+        state.ensureSpace(22f)
         val canvas = state.canvas
+        val h = 16f
         val bannerPaint = Paint().apply { color = bgColor }
-        canvas?.drawRect(MARGIN_H, state.cursorY, PAGE_WIDTH - MARGIN_H, state.cursorY + 20f, bannerPaint)
+        canvas?.drawRect(MARGIN_H, state.cursorY, PAGE_WIDTH - MARGIN_H, state.cursorY + h, bannerPaint)
         val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            textSize = 9.5f
+            textSize = 8.0f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        canvas?.drawText(title, MARGIN_H + 8f, state.cursorY + 13.5f, textPaint)
-        state.cursorY += 24f
+        canvas?.drawText(title, MARGIN_H + 6f, state.cursorY + 11f, textPaint)
+        state.cursorY += h
     }
 
-    private fun drawCategoryHeader(state: RenderState, title: String) {
+    private fun drawCategoryHeaderWithColumns(state: RenderState, title: String) {
         val canvas = state.canvas
-        val paint = Paint().apply { color = COLOR_NAVY_SUBTLE }
-        val borderPaint = Paint().apply {
-            color = COLOR_NAVY
-            strokeWidth = 2f
-        }
-        canvas?.drawRect(MARGIN_H, state.cursorY, PAGE_WIDTH - MARGIN_H, state.cursorY + 18f, paint)
-        canvas?.drawLine(MARGIN_H, state.cursorY, MARGIN_H, state.cursorY + 18f, borderPaint)
-        val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = COLOR_NAVY
-            textSize = 8.8f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-        canvas?.drawText(title, MARGIN_H + 8f, state.cursorY + 12.5f, textPaint)
-        state.cursorY += 18f
-    }
+        val h = 15.5f
+        val bgPaint = Paint().apply { color = COLOR_NAVY }
+        canvas?.drawRect(MARGIN_H, state.cursorY, PAGE_WIDTH - MARGIN_H, state.cursorY + h, bgPaint)
 
-    private fun drawChecklistTableHeader(state: RenderState) {
-        val canvas = state.canvas
-        val bgPaint = Paint().apply { color = COLOR_SLATE }
-        canvas?.drawRect(MARGIN_H, state.cursorY, PAGE_WIDTH - MARGIN_H, state.cursorY + 16f, bgPaint)
-
-        val headerPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            textSize = 8f
+            textSize = 7.6f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        val colQuestionX = MARGIN_H + 6f
-        val colStatusX = MARGIN_H + 292f
-        val colNotesX = MARGIN_H + 356f
+        val colPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(203, 213, 225)
+            textSize = 6.9f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
 
-        canvas?.drawText("Ref & Inspection Check", colQuestionX, state.cursorY + 11f, headerPaint)
-        canvas?.drawText("Status", colStatusX, state.cursorY + 11f, headerPaint)
-        canvas?.drawText("Inspector Notes / Defect Summary", colNotesX, state.cursorY + 11f, headerPaint)
-        state.cursorY += 16f
+        canvas?.drawText(title.take(58), MARGIN_H + 5f, state.cursorY + 10.6f, titlePaint)
+        canvas?.drawText("STATUS", MARGIN_H + COL_STATUS_X_OFFSET + 6f, state.cursorY + 10.4f, colPaint)
+        canvas?.drawText("NOTES / DEFECTS", MARGIN_H + COL_NOTES_X_OFFSET + 4f, state.cursorY + 10.4f, colPaint)
+        state.cursorY += h
     }
 
     private fun drawChecklistRow(
@@ -355,28 +368,26 @@ class PdfReportGenerator(private val context: Context) {
         item: InspectionItem,
         isAlternate: Boolean,
     ) {
-        val questionWidth = 278f
-        val notesWidth = CONTENT_WIDTH - 362f
-
         val qPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = COLOR_TEXT_PRIMARY
-            textSize = 8.4f
+            textSize = 7.4f
         }
         val nPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = if (item.status == InspectionStatus.FAIL) COLOR_FAIL_FG else COLOR_TEXT_MUTED
-            textSize = 8.0f
+            textSize = 7.0f
         }
 
         val noteText = buildString {
             if (item.status == InspectionStatus.FAIL) {
-                if (item.defectDetails.isNotBlank()) {
-                    append(item.defectDetails.trim())
+                append(item.defectDetails.trim().ifBlank { "Defect recorded" })
+                val score = item.computedRiskScore
+                val psLabel = if (item.probability != null && item.severity != null) {
+                    "P${item.probability}×S${item.severity}=${score}/25"
                 } else {
-                    append("Defect recorded (details pending)")
+                    item.effectiveRiskLevel?.label ?: "Med"
                 }
-                val riskStr = item.riskLevel?.label ?: "Medium"
                 val actionStr = item.actionRequired?.label ?: "Monitor"
-                append("  [Risk: $riskStr | Action: $actionStr]")
+                append(" [$psLabel • $actionStr]")
             } else if (item.inlineNote.isNotBlank()) {
                 append(item.inlineNote.trim())
             } else {
@@ -384,13 +395,15 @@ class PdfReportGenerator(private val context: Context) {
             }
         }
 
-        val qLayout = buildLayout("${item.referenceCode}  ${item.question}", qPaint, questionWidth.toInt())
-        val nLayout = buildLayout(noteText, nPaint, notesWidth.toInt())
-        val rowHeight = maxOf(qLayout.height, nLayout.height, 16) + 10f
+        val qLayout = buildLayout("${item.referenceCode} ${item.question}", qPaint, COL_Q_WIDTH.toInt() - 8)
+        val nLayout = buildLayout(noteText, nPaint, COL_NOTES_WIDTH.toInt() - 4)
+        val rowHeight = maxOf(qLayout.height.toFloat(), nLayout.height.toFloat(), 11f) + 5.5f
 
-        state.ensureSpace(rowHeight + 4f) {
-            drawCategoryHeader(state, "${item.sectionNumber}. ${item.categoryTitle.uppercase(Locale.getDefault())} (cont.)")
-            drawChecklistTableHeader(state)
+        state.ensureSpace(rowHeight + 2f) {
+            drawCategoryHeaderWithColumns(
+                state,
+                "${item.sectionNumber}. ${item.categoryTitle.uppercase(Locale.getDefault())} (CONT.)",
+            )
         }
 
         val canvas = state.canvas
@@ -406,103 +419,139 @@ class PdfReportGenerator(private val context: Context) {
         val borderPaint = Paint().apply {
             color = COLOR_BORDER
             style = Paint.Style.STROKE
-            strokeWidth = 0.6f
+            strokeWidth = 0.5f
         }
         canvas?.drawRect(MARGIN_H, rowTop, PAGE_WIDTH - MARGIN_H, rowBottom, bgPaint)
         canvas?.drawRect(MARGIN_H, rowTop, PAGE_WIDTH - MARGIN_H, rowBottom, borderPaint)
 
-        // Question text
-        drawStaticLayout(canvas, qLayout, MARGIN_H + 6f, rowTop + 5f)
+        // Subtle column dividers
+        canvas?.drawLine(
+            MARGIN_H + COL_STATUS_X_OFFSET,
+            rowTop,
+            MARGIN_H + COL_STATUS_X_OFFSET,
+            rowBottom,
+            borderPaint,
+        )
+        canvas?.drawLine(
+            MARGIN_H + COL_NOTES_X_OFFSET,
+            rowTop,
+            MARGIN_H + COL_NOTES_X_OFFSET,
+            rowBottom,
+            borderPaint,
+        )
 
-        // Status badge
+        // Vertically centered question & notes layouts
+        val qY = rowTop + ((rowHeight - qLayout.height) / 2f)
+        drawStaticLayout(canvas, qLayout, MARGIN_H + 5f, qY)
+
+        // Compact Status Pill centered in Status column
         val (badgeBg, badgeFg) = when (item.status) {
             InspectionStatus.PASS -> COLOR_PASS_BG to COLOR_PASS_FG
             InspectionStatus.FAIL -> COLOR_FAIL_BG to COLOR_FAIL_FG
             InspectionStatus.NA -> COLOR_NA_BG to COLOR_NA_FG
             InspectionStatus.UNANSWERED -> COLOR_PENDING_BG to COLOR_PENDING_FG
         }
-        drawPill(canvas, MARGIN_H + 292f, rowTop + 4f, item.status.pdfLabel, badgeBg, badgeFg)
+        val statusLabel = when (item.status) {
+            InspectionStatus.PASS -> "YES"
+            InspectionStatus.FAIL -> "NO"
+            InspectionStatus.NA -> "N/A"
+            InspectionStatus.UNANSWERED -> "—"
+        }
+        val pillH = 11.5f
+        val pillY = rowTop + ((rowHeight - pillH) / 2f)
+        drawPill(
+            canvas = canvas,
+            x = MARGIN_H + COL_STATUS_X_OFFSET + 8f,
+            y = pillY,
+            text = statusLabel,
+            bgColor = badgeBg,
+            fgColor = badgeFg,
+            height = pillH,
+            textSize = 6.5f,
+        )
 
-        // Notes / Defect text
-        drawStaticLayout(canvas, nLayout, MARGIN_H + 356f, rowTop + 5f)
+        val nY = rowTop + ((rowHeight - nLayout.height) / 2f)
+        drawStaticLayout(canvas, nLayout, MARGIN_H + COL_NOTES_X_OFFSET + 4f, nY)
 
         state.cursorY = rowBottom
     }
 
     private fun drawNoDefectsBox(state: RenderState) {
-        state.ensureSpace(36f)
+        state.ensureSpace(26f)
         val canvas = state.canvas
-        val rect = RectF(MARGIN_H, state.cursorY, PAGE_WIDTH - MARGIN_H, state.cursorY + 30f)
+        val h = 22f
+        val rect = RectF(MARGIN_H, state.cursorY + 2f, PAGE_WIDTH - MARGIN_H, state.cursorY + 2f + h)
         val bgPaint = Paint().apply { color = COLOR_PASS_BG }
         val strokePaint = Paint().apply {
             color = COLOR_PASS_FG
             style = Paint.Style.STROKE
-            strokeWidth = 1f
+            strokeWidth = 0.8f
         }
-        canvas?.drawRoundRect(rect, 4f, 4f, bgPaint)
-        canvas?.drawRoundRect(rect, 4f, 4f, strokePaint)
+        canvas?.drawRoundRect(rect, 3f, 3f, bgPaint)
+        canvas?.drawRoundRect(rect, 3f, 3f, strokePaint)
         val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = COLOR_PASS_FG
-            textSize = 9.2f
+            textSize = 7.8f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         canvas?.drawText(
             "Zero failed checks recorded. All inspected play equipment and surfacing met safety standards.",
-            MARGIN_H + 10f,
-            state.cursorY + 18.5f,
+            MARGIN_H + 8f,
+            state.cursorY + 15.5f,
             textPaint,
         )
-        state.cursorY += 36f
+        state.cursorY += h + 4f
     }
 
     private fun drawRiskTableHeader(state: RenderState) {
         val canvas = state.canvas
+        val h = 14f
         val bgPaint = Paint().apply { color = Color.rgb(127, 29, 29) }
-        canvas?.drawRect(MARGIN_H, state.cursorY, PAGE_WIDTH - MARGIN_H, state.cursorY + 17f, bgPaint)
+        canvas?.drawRect(MARGIN_H, state.cursorY, PAGE_WIDTH - MARGIN_H, state.cursorY + h, bgPaint)
 
         val headerPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            textSize = 8f
+            textSize = 7.0f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        canvas?.drawText("Ref & Equipment", MARGIN_H + 6f, state.cursorY + 11.5f, headerPaint)
-        canvas?.drawText("Failed Check & Defect Details", MARGIN_H + 135f, state.cursorY + 11.5f, headerPaint)
-        canvas?.drawText("Risk", MARGIN_H + 382f, state.cursorY + 11.5f, headerPaint)
-        canvas?.drawText("Action Required", MARGIN_H + 440f, state.cursorY + 11.5f, headerPaint)
-        state.cursorY += 17f
+        canvas?.drawText("Ref & Equipment", MARGIN_H + 5f, state.cursorY + 9.8f, headerPaint)
+        canvas?.drawText("Failed Check & Defect Details", MARGIN_H + RISK_COL_DEFECT_X_OFFSET, state.cursorY + 9.8f, headerPaint)
+        canvas?.drawText("P×S / 25", MARGIN_H + RISK_COL_LEVEL_X_OFFSET, state.cursorY + 9.8f, headerPaint)
+        canvas?.drawText("Action Required", MARGIN_H + RISK_COL_ACTION_X_OFFSET, state.cursorY + 9.8f, headerPaint)
+        state.cursorY += h
     }
 
     private fun drawRiskTableRow(
         state: RenderState,
-        entry: com.example.model.RiskAssessmentEntry,
+        entry: RiskAssessmentEntry,
         isAlternate: Boolean,
     ) {
         val equipPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = COLOR_NAVY
-            textSize = 8.2f
+            textSize = 7.3f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         val defectPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = COLOR_TEXT_PRIMARY
-            textSize = 8.2f
+            textSize = 7.3f
         }
         val actionPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = COLOR_TEXT_PRIMARY
-            textSize = 8.2f
+            textSize = 7.3f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
 
-        val equipLayout = buildLayout("${entry.referenceCode} — ${entry.categoryTitle}", equipPaint, 122)
+        val equipLayout = buildLayout("${entry.referenceCode} ${entry.categoryTitle}", equipPaint, RISK_COL_EQUIP_WIDTH.toInt())
         val defectLayout = buildLayout(
-            "Check: ${entry.question}\nDefect: ${entry.defectDetails}",
+            "${entry.question}\nDefect: ${entry.defectDetails}",
             defectPaint,
-            240,
+            RISK_COL_DEFECT_WIDTH.toInt(),
         )
-        val actionLayout = buildLayout(entry.actionRequired.label, actionPaint, 82)
-        val rowHeight = maxOf(equipLayout.height, defectLayout.height, actionLayout.height, 20) + 12f
+        val actionLayout = buildLayout(entry.actionRequired.label, actionPaint, RISK_COL_ACTION_WIDTH.toInt())
+        val rowHeight = maxOf(equipLayout.height, defectLayout.height, actionLayout.height, 20) + 7f
 
-        state.ensureSpace(rowHeight + 4f) {
-            drawSectionTitleBanner(state, "COMPILED RISK ASSESSMENT & ACTION PLAN (CONT.)", Color.rgb(153, 27, 27))
+        state.ensureSpace(rowHeight + 2f) {
+            drawSectionTitleBanner(state, "COMPILED RISK ASSESSMENT & ACTION PLAN (CONT.)", COLOR_CRIMSON_HEADER)
             drawRiskTableHeader(state)
         }
 
@@ -516,21 +565,30 @@ class PdfReportGenerator(private val context: Context) {
         val borderPaint = Paint().apply {
             color = COLOR_BORDER
             style = Paint.Style.STROKE
-            strokeWidth = 0.7f
+            strokeWidth = 0.6f
         }
         canvas?.drawRect(MARGIN_H, rowTop, PAGE_WIDTH - MARGIN_H, rowBottom, bgPaint)
         canvas?.drawRect(MARGIN_H, rowTop, PAGE_WIDTH - MARGIN_H, rowBottom, borderPaint)
 
-        drawStaticLayout(canvas, equipLayout, MARGIN_H + 6f, rowTop + 6f)
-        drawStaticLayout(canvas, defectLayout, MARGIN_H + 135f, rowTop + 6f)
+        drawStaticLayout(canvas, equipLayout, MARGIN_H + 5f, rowTop + 3.5f)
+        drawStaticLayout(canvas, defectLayout, MARGIN_H + RISK_COL_DEFECT_X_OFFSET, rowTop + 3.5f)
 
         val (riskBg, riskFg) = when (entry.riskLevel) {
             RiskLevel.HIGH -> COLOR_RISK_HIGH_BG to COLOR_RISK_HIGH_FG
             RiskLevel.MEDIUM -> COLOR_RISK_MED_BG to COLOR_RISK_MED_FG
             RiskLevel.LOW -> COLOR_RISK_LOW_BG to COLOR_RISK_LOW_FG
         }
-        drawPill(canvas, MARGIN_H + 380f, rowTop + 5f, entry.riskLevel.label.uppercase(Locale.US), riskBg, riskFg)
-        drawStaticLayout(canvas, actionLayout, MARGIN_H + 440f, rowTop + 6f)
+        drawPill(
+            canvas = canvas,
+            x = MARGIN_H + RISK_COL_LEVEL_X_OFFSET - 4f,
+            y = rowTop + 3.5f,
+            text = "${entry.probability}×${entry.severity}=${entry.riskScore}/25",
+            bgColor = riskBg,
+            fgColor = riskFg,
+            height = 12f,
+            textSize = 6.4f,
+        )
+        drawStaticLayout(canvas, actionLayout, MARGIN_H + RISK_COL_ACTION_X_OFFSET, rowTop + 3.5f)
 
         state.cursorY = rowBottom
     }
@@ -538,11 +596,11 @@ class PdfReportGenerator(private val context: Context) {
     private fun drawMaintenanceAndSignOff(state: RenderState, report: InspectionReport) {
         val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = COLOR_TEXT_PRIMARY
-            textSize = 8.5f
+            textSize = 7.5f
         }
         val boldPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = COLOR_NAVY
-            textSize = 8.8f
+            textSize = 7.8f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
 
@@ -551,36 +609,36 @@ class PdfReportGenerator(private val context: Context) {
                 val line = "• ${log.equipmentItem.ifBlank { "Equipment" }}: ${log.repairCarriedOut.ifBlank { "Maintenance recorded" }}" +
                     (if (log.partsUsed.isNotBlank()) " | Parts: ${log.partsUsed}" else "") +
                     (if (log.completedByDate.isNotBlank()) " | Completed: ${log.completedByDate}" else "")
-                val layout = buildLayout(line, textPaint, CONTENT_WIDTH.toInt() - 16)
-                state.ensureSpace(layout.height + 8f)
-                drawStaticLayout(state.canvas, layout, MARGIN_H + 8f, state.cursorY + 2f)
-                state.cursorY += layout.height + 6f
+                val layout = buildLayout(line, textPaint, CONTENT_WIDTH.toInt() - 12)
+                state.ensureSpace(layout.height + 5f)
+                drawStaticLayout(state.canvas, layout, MARGIN_H + 6f, state.cursorY + 2f)
+                state.cursorY += layout.height + 4f
             }
         }
 
         val commentsText = report.metadata.overallComments.ifBlank { "None recorded." }
-        val commentsLayout = buildLayout("Overall Comments: $commentsText", textPaint, CONTENT_WIDTH.toInt() - 16)
-        val signBoxHeight = commentsLayout.height + 46f
+        val commentsLayout = buildLayout("Overall Comments: $commentsText", textPaint, CONTENT_WIDTH.toInt() - 14)
+        val signBoxHeight = commentsLayout.height + 34f
 
-        state.ensureSpace(signBoxHeight + 8f)
+        state.ensureSpace(signBoxHeight + 6f)
         val canvas = state.canvas
-        val boxTop = state.cursorY + 4f
+        val boxTop = state.cursorY + 3f
         val rect = RectF(MARGIN_H, boxTop, PAGE_WIDTH - MARGIN_H, boxTop + signBoxHeight)
         val bgPaint = Paint().apply { color = COLOR_ZEBRA }
         val borderPaint = Paint().apply {
             color = COLOR_BORDER
             style = Paint.Style.STROKE
-            strokeWidth = 1f
+            strokeWidth = 0.8f
         }
-        canvas?.drawRoundRect(rect, 4f, 4f, bgPaint)
-        canvas?.drawRoundRect(rect, 4f, 4f, borderPaint)
+        canvas?.drawRoundRect(rect, 3f, 3f, bgPaint)
+        canvas?.drawRoundRect(rect, 3f, 3f, borderPaint)
 
-        drawStaticLayout(canvas, commentsLayout, MARGIN_H + 8f, boxTop + 8f)
+        drawStaticLayout(canvas, commentsLayout, MARGIN_H + 7f, boxTop + 6f)
 
-        val footerLineY = boxTop + commentsLayout.height + 22f
+        val footerLineY = boxTop + commentsLayout.height + 16f
         canvas?.drawText(
             "Overall Action Required: ${report.metadata.overallActionRequired.label}",
-            MARGIN_H + 8f,
+            MARGIN_H + 7f,
             footerLineY,
             boldPaint,
         )
@@ -592,22 +650,22 @@ class PdfReportGenerator(private val context: Context) {
         )
         canvas?.drawText(
             "Return Form To: Sport & Leisure Admin, Orkney Islands Council",
-            MARGIN_H + 8f,
-            footerLineY + 14f,
+            MARGIN_H + 7f,
+            footerLineY + 11f,
             TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = COLOR_TEXT_MUTED
-                textSize = 8f
+                textSize = 7.0f
             },
         )
-        state.cursorY = boxTop + signBoxHeight + 8f
+        state.cursorY = boxTop + signBoxHeight + 4f
     }
 
     private fun buildLayout(text: String, paint: TextPaint, widthPx: Int): StaticLayout {
-        val safeWidth = widthPx.coerceAtLeast(40)
+        val safeWidth = widthPx.coerceAtLeast(36)
         return StaticLayout.Builder
             .obtain(text, 0, text.length, paint, safeWidth)
             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-            .setLineSpacing(1.5f, 1f)
+            .setLineSpacing(0.8f, 0.94f)
             .setIncludePad(false)
             .build()
     }
@@ -659,27 +717,29 @@ class PdfReportGenerator(private val context: Context) {
             val c = canvas
             val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = COLOR_TEXT_MUTED
-                textSize = 7.8f
+                textSize = 7.0f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             }
             val linePaint = Paint().apply {
                 color = COLOR_BORDER
-                strokeWidth = 0.6f
+                strokeWidth = 0.5f
             }
             c?.drawText(
                 "${report.metadata.siteName.ifBlank { "PLAY AREA" }.uppercase(Locale.getDefault())} — SAFETY INSPECTION",
                 MARGIN_H,
-                22f,
+                16f,
                 paint,
             )
+            val dateStr = "${report.metadata.inspectionDate}  ${report.metadata.inspectionTime}"
+            val dateWidth = paint.measureText(dateStr)
             c?.drawText(
-                "${report.metadata.inspectionDate}  ${report.metadata.inspectionTime}",
-                PAGE_WIDTH - MARGIN_H - 92f,
-                22f,
+                dateStr,
+                PAGE_WIDTH - MARGIN_H - dateWidth,
+                16f,
                 paint,
             )
-            c?.drawLine(MARGIN_H, 26f, PAGE_WIDTH - MARGIN_H, 26f, linePaint)
-            cursorY = 34f
+            c?.drawLine(MARGIN_H, 19f, PAGE_WIDTH - MARGIN_H, 19f, linePaint)
+            cursorY = 23f
         }
 
         fun finishCurrentPage() {
@@ -687,14 +747,14 @@ class PdfReportGenerator(private val context: Context) {
             if (c != null) {
                 val linePaint = Paint().apply {
                     color = COLOR_BORDER
-                    strokeWidth = 0.6f
+                    strokeWidth = 0.5f
                 }
                 val footerPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = COLOR_TEXT_MUTED
-                    textSize = 7.8f
+                    textSize = 7.0f
                 }
-                val footerY = PAGE_HEIGHT - 22f
-                c.drawLine(MARGIN_H, footerY - 10f, PAGE_WIDTH - MARGIN_H, footerY - 10f, linePaint)
+                val footerY = PAGE_HEIGHT - 13f
+                c.drawLine(MARGIN_H, footerY - 8f, PAGE_WIDTH - MARGIN_H, footerY - 8f, linePaint)
                 c.drawText(
                     "Form Ref: ${report.metadata.formRef}  |  PlaySafe Audit Offline Report",
                     MARGIN_H,

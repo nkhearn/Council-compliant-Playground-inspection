@@ -96,19 +96,21 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `risk assessment compiles failed checks sorted by severity`() {
+    fun `risk assessment compiles failed checks using 1-5 probability x 1-5 severity = 1-25 score`() {
         val items = ChecklistCatalog.buildInspectionItems().map { item ->
             when (item.id) {
                 "gen_05" -> item.copy(
                     status = InspectionStatus.FAIL,
                     defectDetails = "Gate latch spring broken",
-                    riskLevel = RiskLevel.LOW,
+                    probability = 2,
+                    severity = 2,
                     actionRequired = ActionRequired.REPAIR,
                 )
                 "swg_03" -> item.copy(
                     status = InspectionStatus.FAIL,
                     defectDetails = "Shackle pin worn past 30% tolerance",
-                    riskLevel = RiskLevel.HIGH,
+                    probability = 4,
+                    severity = 5,
                     actionRequired = ActionRequired.TAKE_OUT_OF_USE,
                 )
                 else -> item.copy(status = InspectionStatus.PASS)
@@ -126,10 +128,14 @@ class ExampleRobolectricTest {
 
         assertEquals(2, report.failCount)
         assertEquals(39, report.passCount)
+        assertEquals(20, report.highestRiskScore)
         assertEquals(RiskLevel.HIGH, report.highestRiskLevel)
         assertEquals(2, report.riskAssessmentEntries.size)
         assertEquals("swg_03", report.riskAssessmentEntries[0].itemId)
+        assertEquals(20, report.riskAssessmentEntries[0].riskScore)
         assertEquals("gen_05", report.riskAssessmentEntries[1].itemId)
+        assertEquals(4, report.riskAssessmentEntries[1].riskScore)
+        assertEquals(RiskLevel.LOW, report.riskAssessmentEntries[1].riskLevel)
     }
 
     @Test
@@ -141,7 +147,8 @@ class ExampleRobolectricTest {
                 4 -> item.copy(
                     status = InspectionStatus.FAIL,
                     defectDetails = "Self-closing gate latch sticking",
-                    riskLevel = RiskLevel.MEDIUM,
+                    probability = 3,
+                    severity = 4,
                     actionRequired = ActionRequired.REPAIR,
                 )
                 7 -> item.copy(status = InspectionStatus.NA)
@@ -170,7 +177,7 @@ class ExampleRobolectricTest {
         )
 
         val pageCount = PdfReportGenerator(context).calculatePageCount(report)
-        assertTrue("Expected multi-page report (>= 2 pages), got $pageCount", pageCount >= 2)
+        assertTrue("Expected compact multi-page report (2-3 pages), got $pageCount", pageCount in 2..3)
 
         val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
         val dummyPdf = File(exportDir, "test_report.pdf").apply { writeText("%PDF-1.4\n") }

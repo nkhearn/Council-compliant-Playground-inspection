@@ -1,21 +1,30 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Production ProGuard / R8 rules for PlaySafe Audit
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Preserve source file & line numbers for crash diagnostics
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Preserve Kotlin metadata and annotations
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
+-keep class kotlin.Metadata { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Keep domain models & Moshi codegen adapters
+-keep class com.example.model.** { *; }
+-keepclassmembers class * {
+    @com.squareup.moshi.FromJson <methods>;
+    @com.squareup.moshi.ToJson <methods>;
+}
+-keep @com.squareup.moshi.JsonClass class * { *; }
+-keepclassmembers class *JsonAdapter {
+    public <init>(com.squareup.moshi.Moshi);
+}
+
+# Keep Room database, entities, and DAOs
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao interface * { *; }
+-dontwarn androidx.room.paging.**
+
+# Suppress benign warnings from optional Moshi Kotlin reflect fallback
+-dontwarn kotlin.reflect.jvm.internal.**
+-dontwarn org.jetbrains.annotations.**

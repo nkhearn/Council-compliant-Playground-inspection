@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,9 +57,11 @@ import com.example.model.InspectionReport
 import com.example.model.RiskAssessmentEntry
 import com.example.model.RiskLevel
 import com.example.ui.components.ActionRequiredSelector
+import com.example.ui.components.FivePointScaleSelector
 import com.example.ui.components.RiskBadge
-import com.example.ui.components.RiskLevelSelector
+import com.example.ui.components.RiskScoreBanner
 import com.example.ui.components.StatBadge
+import com.example.ui.components.scaleColorsForValue
 import com.example.ui.theme.FailCrimson
 import com.example.ui.theme.FailCrimsonSurface
 import com.example.ui.theme.NaSlate
@@ -84,7 +85,8 @@ fun RiskExportScreen(
     onNewInspectionClick: () -> Unit,
     onFixInChecklistClick: () -> Unit,
     onUpdateDefectDetails: (String, String) -> Unit,
-    onUpdateRiskLevel: (String, RiskLevel) -> Unit,
+    onUpdateProbability: (String, Int) -> Unit,
+    onUpdateSeverity: (String, Int) -> Unit,
     onUpdateActionRequired: (String, ActionRequired) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -134,7 +136,7 @@ fun RiskExportScreen(
                                     tint = RiskMediumColor,
                                 )
                                 Text(
-                                    text = "${report.incompleteFailureCount} failed check(s) still missing defect details, risk level, or action.",
+                                    text = "${report.incompleteFailureCount} failed check(s) still missing defect details, probability/severity (1–5), or action.",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFF78350F),
@@ -207,7 +209,7 @@ fun RiskExportScreen(
                                 color = PassEmerald,
                             )
                             Text(
-                                text = "Any checklist item marked Fail (No) automatically compiles here with its defect description, risk rating, and required action.",
+                                text = "Any checklist item marked Fail (No) automatically compiles here with its Probability (1–5) × Severity (1–5) = Risk Score (1–25) and required action.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -235,12 +237,14 @@ fun RiskExportScreen(
         EditRiskEntryDialog(
             entry = entry,
             initialDetails = rawItem?.defectDetails ?: "",
-            initialRisk = rawItem?.riskLevel,
-            initialAction = rawItem?.actionRequired,
+            initialProbability = rawItem?.probability ?: entry.probability,
+            initialSeverity = rawItem?.severity ?: entry.severity,
+            initialAction = rawItem?.actionRequired ?: entry.actionRequired,
             onDismiss = { editingEntry = null },
-            onSave = { details, risk, action ->
+            onSave = { details, prob, sev, action ->
                 onUpdateDefectDetails(entry.itemId, details)
-                if (risk != null) onUpdateRiskLevel(entry.itemId, risk)
+                onUpdateProbability(entry.itemId, prob)
+                onUpdateSeverity(entry.itemId, sev)
                 if (action != null) onUpdateActionRequired(entry.itemId, action)
                 editingEntry = null
             },
@@ -283,7 +287,10 @@ private fun RiskOverviewCard(report: InspectionReport) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                RiskBadge(riskLevel = report.highestRiskLevel)
+                RiskBadge(
+                    riskLevel = report.highestRiskLevel,
+                    riskScore = report.highestRiskScore,
+                )
             }
 
             HorizontalDivider()
@@ -335,13 +342,13 @@ private fun RiskOverviewCard(report: InspectionReport) {
                         modifier = Modifier.size(16.dp),
                     )
                     Text(
-                        text = "Risk Breakdown:",
+                        text = "Risk (1–25):",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    StatBadge("${report.highRiskCount} High", RiskHighSurface, RiskHighColor)
-                    StatBadge("${report.mediumRiskCount} Med", RiskMediumSurface, RiskMediumColor)
-                    StatBadge("${report.lowRiskCount} Low", RiskLowSurface, RiskLowColor)
+                    StatBadge("${report.highRiskCount} High (15+)", RiskHighSurface, RiskHighColor)
+                    StatBadge("${report.mediumRiskCount} Med (7–14)", RiskMediumSurface, RiskMediumColor)
+                    StatBadge("${report.lowRiskCount} Low (1–6)", RiskLowSurface, RiskLowColor)
                 }
             }
         }
@@ -405,7 +412,7 @@ private fun ExportActionsCard(
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = "Generates a multi-page A4 PDF (metadata, full checklist, and compiled Risk Assessment table) or structured JSON in local cache for instant email/share.",
+                text = "Generates a compact A4 PDF (metadata, checklist, and 1–25 Risk Assessment table) or structured JSON in local cache for instant email/share.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -494,6 +501,8 @@ private fun RiskAssessmentRowCard(
         RiskLevel.MEDIUM -> RiskMediumColor
         RiskLevel.LOW -> RiskLowColor
     }
+    val (pFg, pBg) = scaleColorsForValue(entry.probability)
+    val (sFg, sBg) = scaleColorsForValue(entry.severity)
 
     Card(
         modifier = Modifier
@@ -573,25 +582,32 @@ private fun RiskAssessmentRowCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                RiskBadge(riskLevel = entry.riskLevel)
-
-                StatBadge(
-                    label = "Action: ${entry.actionRequired.label}",
-                    bgColor = if (entry.actionRequired == ActionRequired.TAKE_OUT_OF_USE) {
-                        FailCrimsonSurface
-                    } else {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    },
-                    fgColor = if (entry.actionRequired == ActionRequired.TAKE_OUT_OF_USE) {
-                        FailCrimson
-                    } else {
-                        MaterialTheme.colorScheme.onSecondaryContainer
-                    },
+                StatBadge(label = "P: ${entry.probability}/5", bgColor = pBg, fgColor = pFg)
+                Text("×", style = MaterialTheme.typography.labelMedium)
+                StatBadge(label = "S: ${entry.severity}/5", bgColor = sBg, fgColor = sFg)
+                Text("=", style = MaterialTheme.typography.labelMedium)
+                RiskBadge(
+                    riskLevel = entry.riskLevel,
+                    riskScore = entry.riskScore,
                 )
             }
+
+            StatBadge(
+                label = "Action: ${entry.actionRequired.label}",
+                bgColor = if (entry.actionRequired == ActionRequired.TAKE_OUT_OF_USE) {
+                    FailCrimsonSurface
+                } else {
+                    MaterialTheme.colorScheme.secondaryContainer
+                },
+                fgColor = if (entry.actionRequired == ActionRequired.TAKE_OUT_OF_USE) {
+                    FailCrimson
+                } else {
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                },
+            )
         }
     }
 }
@@ -600,20 +616,22 @@ private fun RiskAssessmentRowCard(
 private fun EditRiskEntryDialog(
     entry: RiskAssessmentEntry,
     initialDetails: String,
-    initialRisk: RiskLevel?,
+    initialProbability: Int,
+    initialSeverity: Int,
     initialAction: ActionRequired?,
     onDismiss: () -> Unit,
-    onSave: (String, RiskLevel?, ActionRequired?) -> Unit,
+    onSave: (String, Int, Int, ActionRequired?) -> Unit,
 ) {
     var details by remember { mutableStateOf(initialDetails) }
-    var risk by remember { mutableStateOf(initialRisk ?: entry.riskLevel) }
+    var probability by remember { mutableStateOf(initialProbability.coerceIn(1, 5)) }
+    var severity by remember { mutableStateOf(initialSeverity.coerceIn(1, 5)) }
     var action by remember { mutableStateOf(initialAction ?: entry.actionRequired) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Edit Risk Entry (${entry.referenceCode})") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     text = entry.question,
                     style = MaterialTheme.typography.bodySmall,
@@ -627,12 +645,23 @@ private fun EditRiskEntryDialog(
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("Risk Level", style = MaterialTheme.typography.titleSmall)
-                RiskLevelSelector(
-                    itemId = "dialog_${entry.itemId}",
-                    selectedRisk = risk,
-                    onSelectRisk = { risk = it },
+                Text("Probability (1–5)", style = MaterialTheme.typography.titleSmall)
+                FivePointScaleSelector(
+                    tagPrefix = "dialog_prob_${entry.itemId}",
+                    selectedValue = probability,
+                    lowHint = "1 · Low",
+                    highHint = "5 · High",
+                    onSelectValue = { probability = it },
                 )
+                Text("Severity (1–5)", style = MaterialTheme.typography.titleSmall)
+                FivePointScaleSelector(
+                    tagPrefix = "dialog_sev_${entry.itemId}",
+                    selectedValue = severity,
+                    lowHint = "1 · Least",
+                    highHint = "5 · Severe",
+                    onSelectValue = { severity = it },
+                )
+                RiskScoreBanner(probability = probability, severity = severity)
                 Text("Action Required", style = MaterialTheme.typography.titleSmall)
                 ActionRequiredSelector(
                     itemId = "dialog_${entry.itemId}",
@@ -642,7 +671,7 @@ private fun EditRiskEntryDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(details, risk, action) }) {
+            Button(onClick = { onSave(details, probability, severity, action) }) {
                 Text("Save")
             }
         },

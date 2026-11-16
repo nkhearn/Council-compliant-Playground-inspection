@@ -31,12 +31,24 @@ val NaSlate = Color(0xFF475569)
 val NaSlateSurface = Color(0xFFE2E8F0)
 val OnNaSlateSurface = Color(0xFF1E293B)
 
-val RiskLowColor = Color(0xFF0284C7)
-val RiskLowSurface = Color(0xFFE0F2FE)
+val RiskLowColor = Color(0xFF15803D)
+val RiskLowSurface = Color(0xFFDCFCE7)
 val RiskMediumColor = Color(0xFFD97706)
 val RiskMediumSurface = Color(0xFFFEF3C7)
 val RiskHighColor = Color(0xFFDC2626)
 val RiskHighSurface = Color(0xFFFEE2E2)
+
+// 1-to-5 Probability & Severity Scale Colors (1 = Green -> 5 = Red)
+val Scale1Color = Color(0xFF15803D) // Green
+val Scale1Surface = Color(0xFFDCFCE7)
+val Scale2Color = Color(0xFF65A30D) // Lime Green
+val Scale2Surface = Color(0xFFECFCCB)
+val Scale3Color = Color(0xFFD97706) // Amber
+val Scale3Surface = Color(0xFFFEF3C7)
+val Scale4Color = Color(0xFFEA580C) // Orange
+val Scale4Surface = Color(0xFFFFEDD5)
+val Scale5Color = Color(0xFFDC2626) // Red
+val Scale5Surface = Color(0xFFFEE2E2)
 
 // Neutrals (Light)
 val SurfaceBackgroundLight = Color(0xFFF3F6FA)

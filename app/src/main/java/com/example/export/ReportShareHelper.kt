@@ -43,12 +43,13 @@ object ReportShareHelper {
             appendLine("Weather: ${report.metadata.weatherConditions}")
             appendLine()
             appendLine("Results Summary: ${report.passCount} Pass (Yes) | ${report.failCount} Fail (No) | ${report.naCount} N/A")
-            appendLine("Highest Risk Level: ${report.highestRiskLevel?.label ?: "None (All Passed)"}")
+            val peakRisk = report.highestRiskScore?.let { "$it/25 (${report.highestRiskLevel?.label ?: ""})" } ?: "None (All Passed)"
+            appendLine("Highest Risk Score: $peakRisk")
             if (report.failCount > 0) {
                 appendLine()
                 appendLine("Failed Checks Requiring Attention:")
                 report.riskAssessmentEntries.forEach { entry ->
-                    appendLine("- [${entry.riskLevel.label}] ${entry.referenceCode} (${entry.categoryTitle}): ${entry.defectDetails} -> ${entry.actionRequired.label}")
+                    appendLine("- [Risk ${entry.probability}x${entry.severity}=${entry.riskScore}/25 ${entry.riskLevel.label}] ${entry.referenceCode} (${entry.categoryTitle}): ${entry.defectDetails} -> ${entry.actionRequired.label}")
                 }
             }
         }
